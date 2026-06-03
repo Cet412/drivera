@@ -439,7 +439,7 @@ fun FaceCalibrationPreview(modifier: Modifier = Modifier) {
                     color = Color(0xFF00FF7F).copy(alpha = 0.7f),
                     shape = RoundedCornerShape(20.dp)
                 )
-        )   
+        )
 
         // 3. TEKS INSTRUKSI (Terkunci di Dasar)
         Text(
