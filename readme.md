@@ -1,99 +1,109 @@
-# Drivera: Driver Monitoring System (DMS)
+# Drivera
+### Driver Monitoring System · Android · On-Device AI
 
-Drivera adalah sistem pemantauan pengemudi berbasis Android (*on-device AI*) yang dirancang untuk mendeteksi tingkat kelelahan (*fatigue detection*) dan kantuk secara *real-time*. Sistem ini memanfaatkan pemrosesan citra lokal menggunakan **MediaPipe Face Landmarker** dan **CameraX**, yang berjalan secara persisten di latar belakang melalui *Foreground Service* untuk memastikan keselamatan berkendara tanpa interupsi.
+> **Work in Progress** — This project is in early development. Core detection logic is functional, but features are still being refined.
 
----
+Drivera is an **Android app** that monitors driver alertness in real-time using on-device AI — no cloud, no internet required. It detects drowsiness and micro-sleep by analyzing eye movements through the front camera, then triggers a loud alarm before an accident can happen.
 
-## 1. Arsitektur & Arsitektur Komponen (*As-Is*)
+## Screenshots
 
-Aplikasi ini mengadopsi pemisahan tanggung jawab (*separation of concerns*) yang terbagi ke dalam empat modul utama dengan interaksi berbasis *event-driven broadcast*:
-
-[ UI Layer: MainActivity ] <--- (Local Broadcast) --- [ Core Service: DmsForegroundService ]
-|                                                            |
-(CameraX Preview)                                            (CameraX ImageAnalysis)
-|                                                            |
-[ Face Calibration Frame ]                                  [ AI Inference: FaceAnalyzer ]
-|
-(Triggers Alarm)
-v
-[ Hardware: AudioAlertManager ]
-
-### Tabel Komponen Utama
-
-| Komponen | Layer | Tanggung Jawab Utama |
-| :--- | :--- | :--- |
-| `MainActivity.kt` | **UI Layer (Jetpack Compose)** | Mengelola perizinan runtime, merender status keselamatan (`SAFE`, `WARNING`, `CRITICAL`), dan mengisolasi pratinjau kamera untuk kalibrasi wajah pengguna. |
-| `DmsForegroundService.kt` | **Core State Machine** | Berjalan sebagai `LifecycleService` persisten, mengikat siklus hidup analisis CameraX, mengelola logika transisi status kantuk, dan memancarkan pembaruan status. |
-| `FaceAnalyzer.kt` | **Data & Inference Layer** | Memproses bingkai gambar mentah dari kamera menjadi koordinat *face landmarks*, menghitung nilai *Eye Aspect Ratio* (EAR), menerapkan penyaringan derau (*noise filtering*), serta menangani toleransi kemiringan wajah. |
-| `AudioAlertManager.kt` | **Hardware Interfacing** | Mengambil alih kontrol audio perangkat untuk memaksa volume maksimal pada saluran alarm dan mengeksekusi pola getaran haptik berulang. |
+<table align="center">
+  <tr>
+    <td align="center"><img src="assets\main UI off.jpeg" width="180"/></td>
+    <td align="center"><img src="assets\main UI on.jpeg" width="180"/></td>
+    <td align="center"><img src="assets\main UI on warning state.jpeg" width="180"/></td>
+    <td align="center"><img src="assets\main UI on Critical state.jpeg" width="180"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>OFF</b></td>
+    <td align="center"><b>ON</b></td>
+    <td align="center"><b>WARNING</b></td>
+    <td align="center"><b>CRITICAL</b></td>
+  </tr>
+</table>
 
 ---
 
-## 2. Aliran Data & Logika State Machine
+## How It Works
 
-Sistem Drivera bekerja sebagai sebuah mesin status (*state machine*) yang digerakkan oleh durasi penutupan kelopak mata pengemudi.
+Drivera runs a persistent background service that continuously analyzes your face using **MediaPipe Face Landmarker**. It calculates your **Eye Aspect Ratio (EAR)** to determine how closed your eyes are, and escalates through three states:
 
-### Mekanisme Transisi Status
-* **`SAFE`**: Kondisi normal di mana mata pengemudi terdeteksi terbuka secara konsisten (Nilai rata-rata EAR $\ge 0.16$).
-* **`WARNING`**: Dipicu seketika saat nilai rata-rata EAR turun di bawah ambang batas ($< 0.16$). Status ini menandakan mata mulai terpejam atau berkedip.
-* **`CRITICAL`**: Dipicu apabila kondisi nilai EAR berada di bawah ambang batas terus-menerus selama lebih dari **1500 milidetik (`CRITICAL_DURATION_MS`)**. Status ini mengindikasikan pengemudi tertidur (*micro-sleep*) dan langsung mengaktifkan alarm perangkat keras.
+| State | Condition | Response |
+|---|---|---|
+| `SAFE` | Eyes open normally | No action |
+| `WARNING` | Eyes beginning to close | Visual alert on screen |
+| `CRITICAL` | Eyes closed for 1.5+ seconds | Max-volume alarm + vibration |
 
-### Komunikasi Antar Komponen
-Komoditas data status dari `DmsForegroundService` dikirimkan kembali ke UI (`MainActivity`) secara asinkron menggunakan komponen `LocalBroadcastManager` dengan aksi filter `"DMS_STATE_UPDATE"`. String status dikemas dalam *intent extra* dengan kunci `"STATUS"`.
-
----
-
-## 3. Algoritma Pemrosesan Citra & AI (*On-Device*)
-
-Komponen `FaceAnalyzer` memegang peran sentral dalam pemrosesan inferensi visi komputer lokal dengan memuat model `face_landmarker.task` dalam mode `RunningMode.LIVE_STREAM`.
-
-### Perhitungan Eye Aspect Ratio (EAR)
-EAR dihitung dengan mengukur rasio jarak vertikal antara kelopak mata terhadap jarak horizontalnya. Persamaan matematika yang diterapkan untuk masing-masing mata adalah:
-
-$$\text{EAR} = \frac{||p_2 - p_6|| + ||p_3 - p_5||}{2 \cdot ||p_1 - p_4||}$$
-
-Di mana koordinat indeks landmark MediaPipe yang dipetakan pada kode adalah:
-* **Mata Kiri:** Horizontal ($p_1=33, p_4=133$), Vertikal ($p_2=160, p_6=144$ dan $p_3=158, p_5=153$).
-* **Mata Kanan:** Horizontal ($p_1=362, p_4=263$), Vertikal ($p_2=385, p_6=380$ dan $p_3=387, p_5=373$).
-
-### Logika Mata Dominan (*Dominant Eye Logic*)
-Untuk mengatasi distorsi perspektif ketika wajah pengemudi menoleh atau miring (*tilt*), sistem menerapkan aturan isolasi mata berdasarkan ketinggian geometris kontur kelopak mata (`leftH` dan `rightH`):
-* Jika $\text{rightH} > \text{leftH} \times 1.10$, maka mata kanan mendominasi bingkai (posisi lebih dekat ke kamera). Nilai EAR kiri diisolasi, dan sistem hanya merujuk pada `rightEAR`.
-* Jika $\text{leftH} > \text{rightH} \times 1.10$, maka mata kiri mendominasi bingkai. Sistem hanya merujuk pada `leftEAR`.
-* Jika variasi tinggi di bawah toleransi 10%, wajah dianggap menghadap lurus ke depan dan nilai diambil dari rata-rata keduanya: 
-
-$$\text{EAR}_{\text{raw}} = \frac{\text{rightEAR} + \text{leftEAR}}{2}$$
-
-### Peredam Derau (*Moving Average Filter*)
-Guna menghindari kesalahan deteksi akibat kedipan mata normal atau fluktuasi pencahayaan (*flicker*), nilai mentah $\text{EAR}_{\text{raw}}$ disaring menggunakan struktur data antrean berantai (`LinkedList`) bertindak sebagai **Moving Average Filter** dengan ukuran jendela riwayat dinamis $\mathbf{N = 5}$.
-
-$$\text{EAR}_{\text{smoothed}} = \frac{1}{N} \sum_{i=1}^{N} \text{EAR}_{\text{raw}}[i]$$
+The app keeps monitoring even when the screen is off or you switch to another app.
 
 ---
 
-## 4. Manajemen Perangkat Keras & Respon Haptic
+## Tech Stack
 
-Ketika sistem memasuki status `CRITICAL`, komponen `AudioAlertManager` melakukan intervensi tingkat rendah (*low-level*) terhadap subsistem perangkat keras Android:
-
-1. **Pengambilalihan Volume Suara:** Sistem memanggil `AudioManager` dan memaksa volume saluran suara `STREAM_ALARM` ke tingkat maksimum absolut yang diizinkan perangkat sebelum memutar audio.
-2. **Media Playback Persisten:** Memutar file audio kustom `R.raw.dms_alarm` menggunakan `MediaPlayer` dengan konfigurasi parameter `AudioAttributes.USAGE_ALARM` dan `CONTENT_TYPE_SONIFICATION` dalam kondisi perulangan (*looping*) aktif.
-3. **Pola Getaran Haptik:** Mengeksekusi modul getar melalui `Vibrator` (atau `VibratorManager` pada API level $\ge 31$) dengan pola larik gelombang (*waveform pattern*) berulang:
-   * **`longArrayOf(0, 500, 200, 500)`** dengan indeks pengulangan ke-1 (indeks `0` diam, `500ms` bergetar, `200ms` jeda, `500ms` bergetar).
+- **Language:** Kotlin + Jetpack Compose
+- **AI / CV:** MediaPipe Face Landmarker (on-device, LIVE_STREAM mode)
+- **Camera:** CameraX
+- **Architecture:** Foreground Service · State Machine · LocalBroadcastManager
 
 ---
 
-## 5. Isolasi Kamera dan Manajemen Memori
+## Status
 
-Aplikasi ini mengimplementasikan teknik **Surgical Cleanup** pada sisi UI (`MainActivity`). Komponen pratinjau `FaceCalibrationPreview` menggunakan blok fungsi `DisposableEffect`. 
+```
+[▓▓▓▓▓▓░░░░] ~60% — Core detection working, UI polish & testing in progress
+```
 
-Saat pengemudi menutup layar aplikasi atau berpindah aktivitas, siklus hidup Jetpack Compose memicu pembersihan *use-case* `Preview` secara terisolasi (`cameraProvider.unbind(preview)`). Tindakan ini memastikan bahwa aliran video visual ke layar dimatikan demi menghemat daya baterai, namun **tidak menghentikan** *use-case* `ImageAnalysis` milik `DmsForegroundService` yang bertugas melakukan deteksi AI di latar belakang.
+- [x] EAR-based eye closure detection
+- [x] Moving average noise filter
+- [x] Dominant eye logic (head tilt tolerance)
+- [x] CRITICAL alarm with max volume override + haptic
+- [x] Camera isolation (screen off doesn't stop detection)
+- [ ] Calibration UI per user
+- [ ] Settings screen (sensitivity, alarm tone)
+- [ ] Head pose / nodding detection
+- [ ] Proper permission flow & onboarding
 
 ---
 
-## 6. Catatan Teknis & Utang Arsitektur (*Technical Debt - As-Is*)
+## Getting Started
 
-Sebagai dokumentasi dasar kondisi awal (*as-is*) sebelum pengembangan repositori lebih lanjut, berikut adalah beberapa poin komponen teknis internal yang tercatat di dalam kode saat ini:
+> Requires Android Studio Hedgehog or newer, Android API 26+
 
-1. **Deprecations:** Komunikasi status antara *Background Service* dan *UI Layer* masih mengandalkan `LocalBroadcastManager`. Komponen ini secara resmi telah dinyatakan usang (*deprecated*) oleh Google. Rekomendasi pengembangan masa depan adalah bermigrasi ke struktur reaktif berbasis *SharedFlow* atau *StateFlow* yang terikat pada arsitektur komponen Jetpack.
-2. **Sinkronisasi Manual Berkas Deskriptor:** Pada modul `AudioAlertManager`, pemuatan file audio mentah dilakukan secara manual menggunakan metode `openRawResourceFd` dan membutuhkan penutupan manual (`afd.close()`) untuk mencegah kebocoran alokasi berkas deskriptor memori pada kernel sistem operasi.
-3. **Kompatibilitas Getaran:** Implementasi fungsi umpan balik getar memiliki percabangan kondisional berbasis SDK Android (`Build.VERSION.SDK_INT`) untuk mengalihkan penggunaan `VibratorManager` modern ke metode getaran berbasis `VibrationEffect.createWaveform` guna menjamin fungsionalitas lintas generasi Android API.
+```bash
+git clone https://github.com/Cet412/drivera.git
+```
+
+1. Open in Android Studio
+2. Let Gradle sync finish
+3. Run on a physical device (camera required)
+4. Grant camera & notification permissions when prompted
+5. Keep the front camera facing your face while driving
+
+---
+
+## Architecture & Deep Dive
+
+Want to understand the internals? The technical documentation (state machine design, EAR algorithm, component breakdown, known tech debt) lives in the **[Wiki](https://github.com/Cet412/drivera/wiki)**.
+
+---
+
+## Contributing
+
+This is a personal project but feedback and ideas are welcome. Feel free to open an issue or reach out.
+
+---
+
+<details>
+<summary>Ringkasan dalam Bahasa Indonesia</summary>
+
+**Drivera** adalah aplikasi Android pemantau pengemudi berbasis AI lokal (*on-device*). Aplikasi ini mendeteksi kantuk dan *micro-sleep* secara *real-time* menggunakan kamera depan, tanpa koneksi internet.
+
+Cara kerjanya: kamera merekam wajah secara terus-menerus, lalu model AI menganalisis rasio penutupan kelopak mata (*Eye Aspect Ratio*). Jika mata terdeteksi tertutup lebih dari 1,5 detik, alarm dengan volume maksimum dan getaran akan langsung aktif.
+
+Proyek ini masih dalam tahap pengembangan awal (~60%). Logika deteksi utama sudah berjalan, tapi UI dan fitur tambahan masih dalam pengerjaan.
+
+</details>
+
+---
+
+<sub>Built with MediaPipe · CameraX · Jetpack Compose · Made in Indonesia</sub>
