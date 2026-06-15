@@ -1,43 +1,65 @@
-#.gitignore
-
-# Gradle Files
-.gradle/
+# Compiled and build artifacts
+*.class
+*.o
+*.obj
+*.out
 build/
-/*/build/
-/buildSrc/build/
-.gradle-vcs-exports/
+target/
 
-# Android Studio / IntelliJ IDEA
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/gradle.xml
-.idea/assetWizardSettings.xml
-.idea/dictionaries
-.idea/libraries
-.idea/caches
-.idea/modules.xml
-.idea/navEditor.xml
-.idea/vcs.xml
-*.iml
-*.ipr
-*.iws
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.gradle/
 
-# Keystore & Properties (Sangat Penting untuk Keamanan)
-*.jks
-*.keystore
-local.properties
-secrets.properties
-
-# Log Files & Captures
+# Logs and temp files
 *.log
-captures/
+*.tmp
+*.swp
 
-# OS-generated files
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System
 .DS_Store
 Thumbs.db
 
-# Built Artifacts
-*.apk
-*.aar
-*.jar
-*.bundle
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Archives
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
