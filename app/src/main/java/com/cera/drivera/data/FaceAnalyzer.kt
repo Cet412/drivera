@@ -23,6 +23,16 @@ class FaceAnalyzer(
     private val earHistory = LinkedList<Double>()
     private val HISTORY_SIZE = 5
 
+    // OPTIMASI: Frame throttling untuk mengurangi beban CPU/GPU
+    // Hanya proses setiap 3 frame untuk hemat baterai dan mengurangi panas
+    private var frameCounter = 0
+    private val FRAMES_TO_SKIP = 2 // Proses setiap frame ke-3 (0, 3, 6, ...)
+
+    // OPTIMASI: Mode adaptif berdasarkan kondisi deteksi
+    private var isCriticalMode = false
+    private val FRAMES_TO_SKIP_NORMAL = 3  // Saat normal: proses setiap frame ke-4
+    private val FRAMES_TO_SKIP_CRITICAL = 1 // Saat kritis: proses setiap frame ke-2 (lebih responsif)
+
     init {
         setupFaceLandmarker()
     }
@@ -45,14 +55,36 @@ class FaceAnalyzer(
 
     fun analyze(imageProxy: ImageProxy) {
         try {
+            // OPTIMASI: Frame throttling - skip frame jika belum saatnya proses
+            frameCounter++
+            val currentSkipThreshold = if (isCriticalMode) FRAMES_TO_SKIP_CRITICAL else FRAMES_TO_SKIP_NORMAL
+            
+            if (frameCounter <= currentSkipThreshold) {
+                imageProxy.close()
+                return
+            }
+            frameCounter = 0 // Reset counter
+
             // Capture frames safely from rotation distortion
             val bitmap = imageProxy.toBitmap()
             val mpImage = BitmapImageBuilder(bitmap).build()
 
             val timestampMs = SystemClock.uptimeMillis()
             faceLandmarker?.detectAsync(mpImage, timestampMs)
+            
+            // OPTIMASI: Recycle bitmap segera setelah digunakan untuk mengurangi memory pressure
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
         } catch (e: Exception) {
             Log.e("FaceAnalyzer", "Failed to process AI frame: ${e.message}")
+        } finally {
+            // Pastikan imageProxy selalu ditutup
+            try {
+                imageProxy.close()
+            } catch (e: Exception) {
+                Log.w("FaceAnalyzer", "Error closing imageProxy: ${e.message}")
+            }
         }
     }
 
@@ -90,6 +122,10 @@ class FaceAnalyzer(
         }
 
         val smoothedEAR = earHistory.average()
+
+        // OPTIMASI: Update mode adaptif berdasarkan EAR
+        // Jika EAR sangat rendah (< 0.18), aktifkan mode kritis untuk deteksi lebih responsif
+        isCriticalMode = smoothedEAR < 0.18
 
         onEarCalculated(smoothedEAR)
     }
