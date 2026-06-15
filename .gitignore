@@ -5,6 +5,7 @@
 *.out
 build/
 target/
+app/release/
 
 # Dependencies
 node_modules/
@@ -63,3 +64,7 @@ htmlcov/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# Misc
+*.bak
+local.properties

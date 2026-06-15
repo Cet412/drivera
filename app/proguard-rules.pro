@@ -19,3 +19,12 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Mengabaikan peringatan library pengolah anotasi yang tidak dibutuhkan di runtime
+-dontwarn javax.annotation.processing.**
+-dontwarn javax.lang.model.**
+-dontwarn com.google.auto.value.**
+
+# Jika Anda menggunakan AutoValue atau library dari Google lainnya yang memicu error ini
+-keepattributes Signature
+-keepattributes *Annotation*
