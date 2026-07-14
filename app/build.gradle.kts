@@ -54,6 +54,7 @@ dependencies {
 
     // --- LIFECYCLE SERVICE SUPPORT (Wajib untuk Background Camera) ---
     implementation("androidx.lifecycle:lifecycle-service:2.8.2")
+    implementation(libs.androidx.drawerlayout)
 
     // --- CAMERAX DEPENDENCIES ---
     val cameraxVersion = "1.4.0-rc01"
@@ -72,4 +73,19 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    // Room Database untuk menyimpan histori
+    implementation("androidx.room:room-runtime:2.6.1")
+    annotationProcessor("androidx.room:room-compiler:2.6.1")
+
+    // Coroutines untuk operasi async
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Lifecycle untuk observasi data
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.6.2")
+
+    // Gson untuk serialisasi JSON (CalibrationPreferencesManager)
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("androidx.compose.foundation:foundation:1.7.0")
 }

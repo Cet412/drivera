@@ -1,7 +1,10 @@
 package com.cera.drivera.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -10,36 +13,38 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.google.accompanist.pager.ExperimentalPagerApi
-import com.google.accompanist.pager.HorizontalPager
-import com.google.accompanist.pager.rememberPagerState
+import com.cera.drivera.R
 import com.cera.drivera.ui.theme.DriveraBackground
 import com.cera.drivera.ui.theme.DriveraAccentBlue
 import com.cera.drivera.ui.theme.TextPrimary
 import com.cera.drivera.ui.theme.DmsSuccess
 import com.cera.drivera.ui.theme.WorkSans
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalPagerApi::class)
 @Composable
 fun WelcomeScreenWithPager(
     onOnboardingComplete: () -> Unit
 ) {
-    val pagerState = rememberPagerState()
-    
+    val pagerState = rememberPagerState(pageCount = { 5 })
+    val scope = rememberCoroutineScope()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DriveraBackground)
     ) {
         HorizontalPager(
-            count = 5,
             state = pagerState,
             modifier = Modifier.fillMaxSize()
         ) { page ->
@@ -51,14 +56,33 @@ fun WelcomeScreenWithPager(
                 4 -> WelcomePage5ProfileTutorial()
             }
         }
-        
-        // Navigation buttons at the bottom
-        Box(
+
+        // Navigation area anchored to bottom
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 32.dp)
+                .padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Page indicator dots — above nav buttons
+            Row(horizontalArrangement = Arrangement.Center) {
+                repeat(5) { page ->
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                color = if (page == pagerState.currentPage) DriveraAccentBlue else Color.Gray,
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                    )
+                    if (page < 4) Spacer(modifier = Modifier.width(8.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Nav buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -68,7 +92,9 @@ fun WelcomeScreenWithPager(
                 if (pagerState.currentPage > 0) {
                     Button(
                         onClick = {
-                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                            scope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                            }
                         },
                         modifier = Modifier
                             .weight(1f)
@@ -81,12 +107,14 @@ fun WelcomeScreenWithPager(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                 }
-                
-                // Next/Done button
+
+                // Next / Done button
                 Button(
                     onClick = {
                         if (pagerState.currentPage < 4) {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            scope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            }
                         } else {
                             onOnboardingComplete()
                         }
@@ -107,26 +135,6 @@ fun WelcomeScreenWithPager(
                     )
                 }
             }
-            
-            // Page indicator dots
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                repeat(5) { page ->
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                color = if (page == pagerState.currentPage) DriveraAccentBlue else Color.Gray,
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                    )
-                    if (page < 4) Spacer(modifier = Modifier.width(8.dp))
-                }
-            }
         }
     }
 }
@@ -136,40 +144,46 @@ fun WelcomePage1() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp)
+            // Beri padding bawah agar konten tidak tertimpa nav bar
+            .padding(bottom = 140.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // ── Judul ──────────────────────────────────────────────────────────
         Text(
-            text = "Selamat Datang di DRIVERA",
-            fontSize = 32.sp,
+            text = "Selamat Datang di",
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             fontFamily = WorkSans,
+            letterSpacing = 0.05.em,
             textAlign = TextAlign.Center
+            
         )
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Box(
-            modifier = Modifier
-                .size(120.dp)
-                .background(DriveraAccentBlue, shape = RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "👁️",
-                fontSize = 60.sp
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // ── Logo ───────────────────────────────────────────────────────────
+        Image(
+             painter = painterResource(id = R.drawable.drivera_logo),
+             contentDescription = "DRIVERA Logo",
+             modifier = Modifier
+                 .width(200.dp)
+                 .wrapContentHeight(),
+             contentScale = ContentScale.Fit
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ── Subtitle ───────────────────────────────────────────────────────
         Text(
-            text = "Driver Monitoring System menggunakan AI on-device untuk mendeteksi kantuk pengemudi secara real-time.",
-            fontSize = 16.sp,
-            color = TextPrimary,
+            text = "AI Powered Driver Monitoring System",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal,
+            color = TextPrimary.copy(alpha = 0.7f),
             fontFamily = WorkSans,
+            letterSpacing = 0.03.em,
             textAlign = TextAlign.Center
         )
     }
@@ -190,11 +204,12 @@ fun WelcomePage2() {
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             fontFamily = WorkSans,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 32.sp
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         // Step 1
         Row(
             modifier = Modifier
@@ -216,7 +231,7 @@ fun WelcomePage2() {
                 Text("Sistem menganalisis gerakan mata Anda", fontSize = 14.sp, color = TextPrimary, fontFamily = WorkSans)
             }
         }
-        
+
         // Step 2
         Row(
             modifier = Modifier
@@ -238,7 +253,7 @@ fun WelcomePage2() {
                 Text("AI mendeteksi penutupan mata (EAR)", fontSize = 14.sp, color = TextPrimary, fontFamily = WorkSans)
             }
         }
-        
+
         // Step 3
         Row(
             modifier = Modifier
@@ -278,11 +293,12 @@ fun WelcomePage3() {
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             fontFamily = WorkSans,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 32.sp
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -296,9 +312,9 @@ fun WelcomePage3() {
                 tint = DmsSuccess
             )
         }
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             text = "Semua pemrosesan dilakukan di perangkat Anda. Tidak ada data yang dikirim ke cloud atau server eksternal.",
             fontSize = 16.sp,
@@ -324,19 +340,19 @@ fun WelcomePage4() {
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             fontFamily = WorkSans,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 32.sp
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
-        // Checklist
+
         val items = listOf(
             "Posisikan wajah Anda di hadapan kamera",
             "Pastikan pencahayaan cukup",
             "Bersihkan lensa kamera",
             "Siapkan 1-2 menit untuk proses kalibrasi"
         )
-        
+
         items.forEach { item ->
             Row(
                 modifier = Modifier
@@ -379,19 +395,19 @@ fun WelcomePage5ProfileTutorial() {
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             fontFamily = WorkSans,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 32.sp
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
-        // Step by step
+
         val steps = listOf(
             "1. Tekan ☰ (Hamburger Menu) di bagian atas kiri layar",
             "2. Pilih 'Ubah Profil Pengemudi'",
             "3. Pilih profil dari daftar atau buat profil baru dengan kalibrasi baru",
             "💡 Tip: Buat profil terpisah untuk setiap pengemudi agar deteksi lebih akurat!"
         )
-        
+
         steps.forEachIndexed { index, step ->
             Box(
                 modifier = Modifier

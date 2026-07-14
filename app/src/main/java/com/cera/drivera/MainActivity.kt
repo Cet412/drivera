@@ -23,19 +23,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,12 +33,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,13 +42,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.cera.drivera.data.CalibrationPreferencesManager
+import com.cera.drivera.data.CalibrationProfile
 import com.cera.drivera.services.DmsForegroundService
+import com.cera.drivera.ui.screens.CalibrationWizardScreen
+import com.cera.drivera.ui.screens.DriverNameInputScreen
+import com.cera.drivera.ui.screens.MainScreenWithNavigation
+import com.cera.drivera.ui.screens.ProfileSelectionScreen
+import com.cera.drivera.ui.screens.WelcomeScreenWithPager
 import com.cera.drivera.ui.theme.DmsError
 import com.cera.drivera.ui.theme.DmsSuccess
 import com.cera.drivera.ui.theme.DmsWarning
@@ -74,17 +73,21 @@ import com.cera.drivera.ui.theme.DriveraTheme
 import com.cera.drivera.ui.theme.TextOnBrand
 import com.cera.drivera.ui.theme.TextPrimary
 import com.cera.drivera.ui.theme.WorkSans
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.viewinterop.AndroidView
 
+// ─── Sealed class untuk navigasi antar layar ───────────────────────────────
+sealed class Screen {
+    object Loading : Screen()
+    object Welcome : Screen()
+    object DriverNameInput : Screen()
+    object Calibration : Screen()
+    object Main : Screen()
+    object ProfileSelection : Screen()
+}
+
+// ─── Activity ──────────────────────────────────────────────────────────────
 class MainActivity : ComponentActivity() {
+
+    private lateinit var calibrationManager: CalibrationPreferencesManager
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -101,14 +104,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onCreate(bundle: Bundle?) {
-        super.onCreate(bundle)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        calibrationManager = CalibrationPreferencesManager(this)
         initPermissionPipeline()
 
         setContent {
             DriveraTheme {
-                DriveraMainScreen(
+                MainActivityNavigation(
+                    calibrationManager = calibrationManager,
                     onStartService = { startDmsService() },
                     onStopService = { stopDmsService() }
                 )
@@ -118,13 +124,12 @@ class MainActivity : ComponentActivity() {
 
     private fun startDmsService() {
         val intent = Intent(this, DmsForegroundService::class.java)
-        stopService(intent) // Membersihkan memori state lama jika ada
+        stopService(intent)
         ContextCompat.startForegroundService(this, intent)
     }
 
     private fun stopDmsService() {
-        val intent = Intent(this, DmsForegroundService::class.java)
-        stopService(intent)
+        stopService(Intent(this, DmsForegroundService::class.java))
     }
 
     private fun initPermissionPipeline() {
@@ -137,15 +142,130 @@ class MainActivity : ComponentActivity() {
 
     private fun checkOverlayPermission() {
         if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
             )
-            startActivity(intent)
         }
     }
 }
 
+// ─── Navigation root ───────────────────────────────────────────────────────
+@Composable
+fun MainActivityNavigation(
+    calibrationManager: CalibrationPreferencesManager,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit
+) {
+    var currentScreen by remember { mutableStateOf<Screen>(Screen.Loading) }
+    var driverName by remember { mutableStateOf("") }
+    var allProfiles by remember { mutableStateOf(calibrationManager.getAllProfiles()) }
+    var activeProfileId by remember { mutableStateOf(calibrationManager.getActiveProfile()?.profileId) }
+
+    // Tentukan layar awal berdasarkan status first boot
+    LaunchedEffect(Unit) {
+        currentScreen = if (calibrationManager.isFirstBoot()) Screen.Welcome else Screen.Main
+    }
+
+    when (currentScreen) {
+
+        Screen.Loading -> {
+            // Layar kosong sementara LaunchedEffect menentukan tujuan
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(DriveraBackground)
+            )
+        }
+
+        Screen.Welcome -> {
+            WelcomeScreenWithPager(
+                onOnboardingComplete = {
+                    currentScreen = Screen.DriverNameInput
+                }
+            )
+        }
+
+        Screen.DriverNameInput -> {
+            DriverNameInputScreen(
+                onContinue = { name ->
+                    driverName = name
+                    currentScreen = Screen.Calibration
+                }
+            )
+        }
+
+        Screen.Calibration -> {
+            CalibrationWizardScreen(
+                driverName = driverName,
+                onCalibrationComplete = { earOpen, earClosed ->
+                    val newProfile = calibrationManager.createProfile(
+                        driverName = driverName,
+                        earOpen = earOpen,
+                        earClosed = earClosed
+                    )
+                    calibrationManager.saveProfile(newProfile)
+                    calibrationManager.setActiveProfile(newProfile.profileId)
+                    calibrationManager.markFirstBootComplete()
+
+                    allProfiles = calibrationManager.getAllProfiles()
+                    activeProfileId = newProfile.profileId
+
+                    currentScreen = Screen.Main
+                },
+                onCalibrationFailed = {
+                    // Kembali ke DriverNameInputScreen dengan driverName tetap tersimpan
+                    // (driverName masih di state, jadi tinggal navigasi balik)
+                    currentScreen = Screen.DriverNameInput
+                }
+            )
+        }
+
+        Screen.Main -> {
+            // MainScreenWithNavigation membungkus DriveraMainScreen (DMS asli)
+            // sehingga hamburger menu + navigasi profil tetap tersedia
+            MainScreenWithNavigation(
+                onProfileMenuClicked = { currentScreen = Screen.ProfileSelection },
+                onSettingsClicked = { /* TODO: Settings screen */ },
+                onAboutClicked = { /* TODO: About screen */ }
+            ) {
+                // Konten utama DMS: power button, animasi, service management
+                DriveraMainScreen(
+                    onStartService = onStartService,
+                    onStopService = onStopService
+                )
+            }
+        }
+
+        Screen.ProfileSelection -> {
+            ProfileSelectionScreen(
+                profiles = allProfiles,
+                activeProfileId = activeProfileId,
+                onSelectProfile = { profileId ->
+                    calibrationManager.setActiveProfile(profileId)
+                    activeProfileId = profileId
+                    allProfiles = calibrationManager.getAllProfiles()
+                    currentScreen = Screen.Main
+                },
+                onDeleteProfile = { profileId ->
+                    calibrationManager.deleteProfile(profileId)
+                    allProfiles = calibrationManager.getAllProfiles()
+                    if (activeProfileId == profileId) activeProfileId = null
+                },
+                onCreateNewProfile = {
+                    currentScreen = Screen.DriverNameInput
+                },
+                onClose = {
+                    currentScreen = Screen.Main
+                }
+            )
+        }
+    }
+}
+
+// ─── DMS Main Content (power button, kamera, animasi) ─────────────────────
 @Composable
 fun DriveraMainScreen(
     onStartService: () -> Unit,
@@ -153,81 +273,72 @@ fun DriveraMainScreen(
 ) {
     val context = LocalContext.current
     var isSystemActive by remember { mutableStateOf(false) }
-
-    // State baru untuk menampung status dari Service
     var dmsStatus by remember { mutableStateOf("SAFE") }
 
-    // Efek Samping: Mendaftar untuk mendengarkan Broadcast dari Service
+    // Dengarkan broadcast status dari DmsForegroundService
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                val newStatus = intent?.getStringExtra("STATUS") ?: "SAFE"
-                dmsStatus = newStatus
+                dmsStatus = intent?.getStringExtra("STATUS") ?: "SAFE"
             }
         }
         val filter = IntentFilter("DMS_STATE_UPDATE")
         LocalBroadcastManager.getInstance(context).registerReceiver(receiver, filter)
-
         onDispose {
             LocalBroadcastManager.getInstance(context).unregisterReceiver(receiver)
         }
     }
 
-    // Menentukan warna utama UI berdasarkan status AI
+    // Warna background berubah sesuai status
     val targetUiColor = when {
-        !isSystemActive -> DriveraBackground // Mati: Gelap total
-        dmsStatus == "CRITICAL" -> DmsError // Kantuk: Merah
-        dmsStatus == "WARNING" -> DmsWarning // Transisi berkedip: Oranye (opsional ditampilkan)
-        else -> DriveraBackground // SAFE: Kembali ke gelap untuk mencegah silau malam hari
+        !isSystemActive -> DriveraBackground
+        dmsStatus == "CRITICAL" -> DmsError
+        else -> DriveraBackground
     }
 
-    // Menentukan teks ON / OFF / CRITICAL
     val displayText = when {
         !isSystemActive -> "OFF"
         dmsStatus == "CRITICAL" -> "WARNING"
         else -> "ON"
     }
 
-    // Warna teks indikator
     val statusTextColor by animateColorAsState(
         targetValue = when {
             !isSystemActive -> TextPrimary
-            dmsStatus == "CRITICAL" -> TextOnBrand // Teks putih di atas background merah
+            dmsStatus == "CRITICAL" -> TextOnBrand
             dmsStatus == "WARNING" -> DmsWarning
             else -> DmsSuccess
         },
-        animationSpec = tween(durationMillis = 300), label = "statusColor"
+        animationSpec = tween(300), label = "statusColor"
     )
 
-    // Animasi perubahan warna background utama yang mulus
     val backgroundColor by animateColorAsState(
         targetValue = targetUiColor,
-        animationSpec = tween(durationMillis = 400), label = "bgColor"
+        animationSpec = tween(400), label = "bgColor"
     )
 
-    // Warna tombol power
     val buttonColor by animateColorAsState(
         targetValue = if (isSystemActive) DmsSuccess else DriveraSurface,
-        animationSpec = tween(durationMillis = 300), label = "btnColor"
+        animationSpec = tween(300), label = "btnColor"
     )
 
     val blueCurveTranslation by animateDpAsState(
         targetValue = if (isSystemActive) 150.dp else 0.dp,
-        animationSpec = tween(durationMillis = 600), label = "curveTranslation"
+        animationSpec = tween(600), label = "curveTranslation"
     )
+
     val contentVerticalOffset by animateDpAsState(
         targetValue = if (isSystemActive) 0.dp else (-60).dp,
-        animationSpec = tween(durationMillis = 600), label = "contentOffset"
+        animationSpec = tween(600), label = "contentOffset"
     )
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = backgroundColor
     ) {
-        // ROOT BOX
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // --- LAPISAN BAWAH: GRUP DEKORATIF & INTERAKSI ---
+            // ── Lapisan bawah: kurva biru + tombol power + kamera preview ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -238,7 +349,7 @@ fun DriveraMainScreen(
                     },
                 contentAlignment = Alignment.TopCenter
             ) {
-                // 1. Kanvas Biru
+                // Kurva biru dekoratif
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val path = Path().apply {
                         moveTo(0f, size.height * 0.25f)
@@ -253,7 +364,7 @@ fun DriveraMainScreen(
                     drawPath(path = path, color = DriveraAccentBlue)
                 }
 
-                // 2. Tombol Power Interaktif
+                // Tombol power
                 Box(
                     modifier = Modifier
                         .offset(y = -10.dp)
@@ -266,11 +377,7 @@ fun DriveraMainScreen(
                         .background(buttonColor)
                         .clickable {
                             isSystemActive = !isSystemActive
-                            if (isSystemActive) {
-                                onStartService()
-                            } else {
-                                onStopService()
-                            }
+                            if (isSystemActive) onStartService() else onStopService()
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -282,28 +389,26 @@ fun DriveraMainScreen(
                     )
                 }
 
-                // 3. AREA KALIBRASI WAJAH (Menggantikan Kartu Diagnostik)
+                // Kamera preview (tampil saat DMS belum aktif)
                 AnimatedVisibility(
                     visible = !isSystemActive,
                     enter = fadeIn(animationSpec = tween(250)),
                     exit = fadeOut(animationSpec = tween(250)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter) // Menempel di dasar layar
+                        .align(Alignment.BottomCenter)
                         .padding(bottom = 32.dp, start = 24.dp, end = 24.dp)
                 ) {
-                    // Injeksi komponen kamera dengan dimensi absolut
                     FaceCalibrationPreview(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp) // Tinggi proporsional agar tidak menabrak tombol power
+                            .height(180.dp)
                             .clip(RoundedCornerShape(20.dp))
                     )
                 }
-            } // Tutup Lapisan Bawah
+            }
 
-            // --- LAPISAN ATAS: TIPOGRAFI UTAMA ---
-            // Dikeluarkan dari grup bawah agar bisa bergerak bebas di seluruh layar
+            // ── Lapisan atas: teks DRIVERA + status ──
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -346,6 +451,87 @@ fun DriveraMainScreen(
     }
 }
 
+// ─── Face calibration camera preview ──────────────────────────────────────
+@Composable
+fun FaceCalibrationPreview(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var previewUseCaseRef by remember { mutableStateOf<Preview?>(null) }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+
+        AndroidView(
+            factory = { ctx ->
+                PreviewView(ctx).apply {
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            update = { previewView ->
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    cameraProviderRef = cameraProvider
+
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    previewUseCaseRef = preview
+
+                    try {
+                        cameraProvider.unbind(preview)
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_FRONT_CAMERA,
+                            preview
+                        )
+                    } catch (e: Exception) {
+                        Log.e("CalibrationUI", "Gagal memuat pratinjau kamera", e)
+                    }
+                }, ContextCompat.getMainExecutor(context))
+            }
+        )
+
+        // Bingkai panduan mata
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.65f)
+                .fillMaxHeight(0.55f)
+                .border(
+                    width = 2.dp,
+                    color = Color(0xFF00FF7F).copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(20.dp)
+                )
+        )
+
+        Text(
+            text = "ALIGN EYES WITHIN THE FRAME",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.05.em,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp)
+                .padding(horizontal = 16.dp)
+        )
+    }
+
+    // Lepas hanya use-case Preview ini; biarkan AI Service tetap hidup
+    DisposableEffect(Unit) {
+        onDispose {
+            previewUseCaseRef?.let { preview ->
+                cameraProviderRef?.unbind(preview)
+            }
+            Log.d("CalibrationUI", "Kamera UI dilepas secara terisolasi. Service AI aman.")
+        }
+    }
+}
+
+// ─── Komponen diagnostik (tetap tersedia untuk kebutuhan lain) ─────────────
 @Composable
 fun DiagnosticRow(
     label: String,
@@ -376,94 +562,5 @@ fun DiagnosticRow(
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.02.em
         )
-    }
-}
-
-@Composable
-fun FaceCalibrationPreview(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    // Simpan referensi memori secara spesifik
-    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
-    var previewUseCaseRef by remember { mutableStateOf<Preview?>(null) } // Referensi terisolasi
-
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-
-        // 1. RAW CAMERA PREVIEW
-        AndroidView(
-            factory = { ctx ->
-                PreviewView(ctx).apply {
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-            update = { previewView ->
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    cameraProviderRef = cameraProvider
-
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-
-                    // Simpan use-case ini ke state agar bisa dihancurkan secara spesifik nanti
-                    previewUseCaseRef = preview
-
-                    val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-                    try {
-                        // ANTI-CRASH: Jangan pernah gunakan unbindAll() di sini!
-                        // Cukup putus preview lama (jika ada recomposition) lalu pasang yang baru
-                        cameraProvider.unbind(preview)
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview
-                        )
-                    } catch (e: Exception) {
-                        Log.e("CalibrationUI", "Gagal memuat pratinjau kamera", e)
-                    }
-                }, ContextCompat.getMainExecutor(context))
-            }
-        )
-
-        // 2. OVERLAY BINGKAI MATA (Terkunci Absolut di Tengah)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.65f)
-                .fillMaxHeight(0.55f)
-                .border(
-                    width = 2.dp,
-                    color = Color(0xFF00FF7F).copy(alpha = 0.7f),
-                    shape = RoundedCornerShape(20.dp)
-                )
-        )
-
-        // 3. TEKS INSTRUKSI (Terkunci di Dasar)
-        Text(
-            text = "ALIGN EYES WITHIN THE FRAME",
-            color = Color.White,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.05.em,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp)
-                .padding(horizontal = 16.dp)
-        )
-    }
-
-    // KRUSIAL: Surgical Cleanup
-    DisposableEffect(Unit) {
-        onDispose {
-            // Hanya putus use-case 'Preview' milik UI. Biarkan AI Service tetap hidup.
-            previewUseCaseRef?.let { preview ->
-                cameraProviderRef?.unbind(preview)
-            }
-            Log.d("CalibrationUI", "Kamera UI dilepas secara terisolasi. Service AI aman.")
-        }
     }
 }
