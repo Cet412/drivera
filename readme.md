@@ -50,7 +50,7 @@ The app keeps monitoring even when the screen is off or you switch to another ap
 ## Status
 
 ```
-[▓▓▓▓▓▓▓▓░░] ~80% — Core detection working, UI polish & testing in progress
+[▓▓▓▓▓▓▓▓░░] ~80% — settings screen and adjustment are on going
 ```
 
 - [x] EAR-based eye closure detection
