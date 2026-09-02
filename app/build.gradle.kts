@@ -37,6 +37,14 @@ android {
     }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.1" }
+
+    applicationVariants.all {
+        outputs.all {
+            val outputImpl = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val versionName = defaultConfig.versionName
+            outputImpl.outputFileName = "drivera_v${versionName}.apk"
+        }
+    }
 }
 
 dependencies {

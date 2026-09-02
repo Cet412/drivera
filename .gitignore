@@ -68,3 +68,4 @@ htmlcov/
 # Misc
 *.bak
 local.properties
+website/
