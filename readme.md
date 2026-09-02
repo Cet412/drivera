@@ -50,18 +50,18 @@ The app keeps monitoring even when the screen is off or you switch to another ap
 ## Status
 
 ```
-[▓▓▓▓▓▓░░░░] ~60% — Core detection working, UI polish & testing in progress
+[▓▓▓▓▓▓▓▓░░] ~80% — settings screen and adjustment are on going
 ```
 
 - [x] EAR-based eye closure detection
 - [x] Moving average noise filter
 - [x] Dominant eye logic (head tilt tolerance)
 - [x] CRITICAL alarm with max volume override + haptic
-- [x] Camera isolation (screen off doesn't stop detection)
-- [ ] Calibration UI per user
+- [x] Camera isolation (basic) - ForegroundService battery optimization edge cases pending
+- [x] Calibration UI per user
 - [ ] Settings screen (sensitivity, alarm tone)
-- [ ] Head pose / nodding detection
-- [ ] Proper permission flow & onboarding
+- [x] Head pose / nodding detection
+- [x] Proper permission flow & onboarding
 
 ---
 
